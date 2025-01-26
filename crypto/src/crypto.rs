@@ -132,14 +132,13 @@ fn aes_gf_mult(left: u8, right: u8) -> u8 {
     let mut result = 0;
     let mut a = left;
     let mut b = right;
-    let mut shift_overflow = false;
 
     for _ in 0..8 {
         if b & 1 == 1 {
             result ^= a;
         }
 
-        shift_overflow = a >= 0x80;
+        let shift_overflow = a >= 0x80;
         a = (a & 0x7f) << 1;
 
         if shift_overflow {
@@ -207,7 +206,7 @@ fn aes_next_keyround(key: &[[u8; 4]; 4], round: u8) -> [[u8; 4]; 4] {
     let mut last_column = [key[0][3], key[1][3], key[2][3], key[3][3]];
     last_column = aes_rotword(last_column);
     last_column = aes_subword(last_column);
-    let mut rcon_add = 0;
+    let rcon_add;
     if round <= 7 {
         rcon_add = 1 << round;
     } else {

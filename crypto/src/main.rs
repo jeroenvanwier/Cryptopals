@@ -8,7 +8,7 @@ use text_analysis::*;
 use crypto::*;
 
 fn main() {
-    challenge_7();
+    challenge_8();
 }
 
 fn challenge_3() {
@@ -140,4 +140,23 @@ fn challenge_7() {
     let key = from_ascii("YELLOW SUBMARINE");
     let plaintext = aes_128_ecb_decode(&input, &key).expect("Decoding failed");
     println!("{}", to_ascii(&plaintext));
+}
+
+fn challenge_8() {
+    let mut file = File::open("./8.txt").expect("Failed to open file");
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect("Failed to read file");
+
+    for line in contents.split('\n') {
+        let mut seen_strings = Vec::new();
+        let mut remainder = line.clone().to_string();
+        while remainder.len() > 0 {
+            let temp = remainder.split_off(32);
+            if seen_strings.contains(&remainder) {
+                println!("Candidate {} has duplicate block {}", line, remainder);
+            }
+            seen_strings.push(remainder);
+            remainder = temp;
+        }
+    }
 }

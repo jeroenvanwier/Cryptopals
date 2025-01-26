@@ -8,7 +8,7 @@ use text_analysis::*;
 use crypto::*;
 
 fn main() {
-    challenge_6();
+    challenge_7();
 }
 
 fn challenge_3() {
@@ -114,7 +114,7 @@ fn challenge_6() {
     for block in blocks {
         let mut best_key: u8 = 0;
         let mut best_score = f64::MAX;
-        for i in 0..=u8::MAX {
+        for i in 32..=126 {
             let output = single_char_xor(&block, &i);
             let output_s = to_ascii(&output);
             let score = char_freq(&output_s);
@@ -128,6 +128,16 @@ fn challenge_6() {
 
     let output = repeat_key_xor(&input, &guessed_key);
 
-    println!("{:?}", strike_unprintable_characters(&to_ascii(&output)));
+    println!("{}", to_ascii(&output));
     println!("{:?}", to_ascii(&guessed_key));
+}
+
+fn challenge_7() {
+    let mut file = File::open("./7.txt").expect("Failed to open file");
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect("Failed to read file");
+    let input = from_base64(&(contents.replace("\n", ""))).expect("Invalid base64 given");
+    let key = from_ascii("YELLOW SUBMARINE");
+    let plaintext = aes_128_ecb_decode(&input, &key).expect("Decoding failed");
+    println!("{}", to_ascii(&plaintext));
 }

@@ -10,8 +10,11 @@ pub fn char_freq(input: &String) -> f64 {
         if n >= 97 && n <= 122 {
             counts[n - 97] += 1.0;
             total_letters += 1.0;
-        } else {
-            sum += 0.05;
+        } else if !c.is_ascii() {
+            sum += 0.1;
+        }
+        if c.is_uppercase() {
+            sum += 0.01;
         }
     }
     for i in 0..26 {
@@ -23,7 +26,7 @@ pub fn char_freq(input: &String) -> f64 {
 pub fn strike_unprintable_characters(input: &String) -> String {
     let mut output = String::new();
     for c in input.chars() {
-        if c.is_alphanumeric() {
+        if !c.is_ascii_control() {
             output.push(c);
         } else {
             output.push('-');

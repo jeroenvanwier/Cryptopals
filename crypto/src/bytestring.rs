@@ -1,5 +1,15 @@
-use std::result;
+use rand::prelude::*;
 
+pub fn rand_bytes(length: u8) -> Vec<u8> {
+    let mut output: Vec<u8> = Vec::new();
+    let mut rng = rand::rng();
+
+    for _ in 0..length {
+        output.push(rng.random());
+    }
+
+    output
+}
 
 pub fn from_hex(input: &str) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -186,4 +196,13 @@ pub fn hamming_dist(input: &Vec<u8>, other: &Vec<u8>) -> u32 {
         sum += weight(d1 ^ d2);
     }
     sum
+}
+
+pub fn pkcs7pad(input: &Vec<u8>, block_size: u8) -> Vec<u8> {
+    let padding_length: u8 = block_size - ((input.len() as u8) % block_size);
+    let mut output = input.clone();
+    for _ in 0..padding_length {
+        output.push(padding_length);
+    }
+    output
 }

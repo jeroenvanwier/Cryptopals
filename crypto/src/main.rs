@@ -1,14 +1,16 @@
+#![allow(dead_code)]
 mod bytestring;
 mod text_analysis;
 mod crypto;
-use std::{fs::File, i32, io::Read, process::Output, result};
+use std::{fs::File, io::Read};
 
 use bytestring::*;
 use text_analysis::*;
 use crypto::*;
+use rand::Rng;
 
 fn main() {
-    challenge_8();
+    challenge_12();
 }
 
 fn challenge_3() {
@@ -149,7 +151,7 @@ fn challenge_8() {
 
     for line in contents.split('\n') {
         let mut seen_strings = Vec::new();
-        let mut remainder = line.clone().to_string();
+        let mut remainder = line.to_string();
         while remainder.len() > 0 {
             let temp = remainder.split_off(32);
             if seen_strings.contains(&remainder) {
@@ -159,4 +161,125 @@ fn challenge_8() {
             remainder = temp;
         }
     }
+}
+
+fn challenge_9() {
+    let test = from_ascii("YELLOW SUBMARINE");
+    println!("{:?}", to_ascii(&pkcs7pad(&test, 16)));
+}
+
+fn challenge_10() {
+    let mut file = File::open("./10.txt").expect("Failed to open file");
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect("Failed to read file");
+    let input = from_base64(&(contents.replace("\n", ""))).expect("Invalid base64 given");
+    let key = from_ascii("YELLOW SUBMARINE");
+    let iv = from_ascii("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00");
+    let plaintext = aes_128_cbc_decode(&input, &key, &iv).expect("Decoding failed");
+    println!("{}", to_ascii(&plaintext));
+}
+
+fn challenge_11() {
+    fn enc_oracle(input: &Vec<u8>) -> (bool, Vec<u8>) {
+        let mut rng = rand::rng();
+        let mut plaintext = rand_bytes(rng.random_range(5..=10));
+        plaintext.append(&mut input.clone());
+        plaintext.append(&mut rand_bytes(rng.random_range(5..=10)));
+        
+        plaintext = pkcs7pad(&plaintext, 16);
+
+        let key  = rand_bytes(16);
+
+        if rng.random_range(0..=1) == 0 {
+            let iv = rand_bytes(16);
+            (true, aes_128_cbc_encode(&plaintext, &key, &iv).unwrap())
+        } else {
+            (false, aes_128_ecb_encode(&plaintext, &key).unwrap())
+        }
+    }
+
+    let mut correct_guesses = 0;
+    let test_data = from_ascii("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    for _ in 0..100 {
+        let (correct_answer, ciphertext) = enc_oracle(&test_data);
+
+        //check if the second and third block of the ciphertext (both encoding 16 'A's) are the same
+        let mut guess = false;
+        for i in 0..16 {
+            guess |= ciphertext[16+i] != ciphertext[32+i];
+        }
+        if correct_answer == guess {
+            correct_guesses += 1;
+        }
+    }
+
+    println!("Correctly guess {:?}/100 times", correct_guesses);
+}
+
+fn challenge_12() {
+    fn enc_oracle(input: &Vec<u8>) -> Vec<u8> {
+        let mut plaintext = input.clone();
+        plaintext.append(&mut from_base64("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK").unwrap());
+        plaintext = pkcs7pad(&plaintext, 16);
+
+        //One-time randomly generated key
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        aes_128_ecb_encode(&plaintext, &key).unwrap()
+    }
+
+    let mut prefix = Vec::new();
+    let mut current_len: usize = enc_oracle(&prefix).len();
+    while enc_oracle(&prefix).len() == current_len {
+        prefix.push(b'A');
+    }
+    current_len = enc_oracle(&prefix).len();
+    let mut block_size = 0;
+    while enc_oracle(&prefix).len() == current_len {
+        prefix.push(b'A');
+        block_size += 1;
+    }
+
+    println!("Block size: {:?}", block_size);
+
+    while prefix.len() < 2 * block_size {
+        prefix.push(b'A');
+    }
+
+    let ciphertext = enc_oracle(&prefix);
+
+    let mut using_ecb = true;
+    for i in 0..block_size {
+        using_ecb &= ciphertext[i] == ciphertext[block_size+i];
+    }
+
+    println!("Using ECB mode: {:?}", using_ecb);
+
+    let mut known_bytes = Vec::new();
+
+    for _ in 0..enc_oracle(&Vec::new()).len() {
+        prefix = Vec::new();
+        let padding_length = block_size - (known_bytes.len() % block_size) - 1;
+        for _ in 0..padding_length {
+            prefix.push(b'A');
+        }
+        let challenge = enc_oracle(&prefix);
+        prefix.append(&mut known_bytes.clone());
+        let current_block = known_bytes.len() / block_size;
+        for b in 0..u8::MAX {
+            prefix.push(b);
+            let candidate = enc_oracle(&prefix);
+            let mut found_byte = true;
+            for i in 0..block_size {
+                found_byte &= challenge[block_size * current_block + i] == candidate[block_size * current_block + i];
+            }
+            if found_byte {
+                known_bytes.push(b);
+                break;
+            }
+            prefix.pop();
+        }
+    }
+
+    println!("{:?}", to_ascii(&known_bytes));
 }

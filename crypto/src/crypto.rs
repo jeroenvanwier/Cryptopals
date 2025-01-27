@@ -78,11 +78,11 @@ fn aes_deconstruct_chunk(input: &[[u8; 4]; 4]) -> Vec<u8> {
     output
 }
 
-fn aes_add_round_key(input: &[[u8; 4]; 4], key: &[[u8; 4]; 4]) -> [[u8; 4]; 4] {
+fn aes_add_chunks(left: &[[u8; 4]; 4], right: &[[u8; 4]; 4]) -> [[u8; 4]; 4] {
     let mut output = [[0u8; 4]; 4];
     for r in 0..4 {
         for c in 0..4 {
-            output[r][c] = input[r][c] ^ key[r][c];
+            output[r][c] = left[r][c] ^ right[r][c];
         }
     }
     output
@@ -226,6 +226,41 @@ fn aes_next_keyround(key: &[[u8; 4]; 4], round: u8) -> [[u8; 4]; 4] {
     output
 }
 
+fn aes_128_encode_chunk(input: &[[u8; 4]; 4], keys: &[[[u8; 4]; 4]; 11]) -> [[u8; 4]; 4] {
+    let mut chunk = aes_add_chunks(&input, &keys[0]);
+
+    for i in 0..9 {
+        chunk = aes_apply_sbox(&chunk);
+        chunk = aes_shift_rows(&chunk);
+        chunk = aes_mix_columns(&chunk);
+
+        chunk = aes_add_chunks(&chunk, &keys[i+1]);
+    }
+
+    chunk = aes_apply_sbox(&chunk);
+    chunk = aes_shift_rows(&chunk);
+    chunk = aes_add_chunks(&chunk, &keys[10]);
+
+    chunk
+}
+
+fn aes_128_decode_chunk(input: &[[u8; 4]; 4], keys: &[[[u8; 4]; 4]; 11]) -> [[u8; 4]; 4] {
+    let mut chunk = aes_add_chunks(&input, &keys[10]);
+
+    for i in 0..9 {
+        chunk = aes_invert_shift_rows(&chunk);
+        chunk = aes_invert_sbox(&chunk);
+        chunk = aes_add_chunks(&chunk, &keys[9 - i]);
+        chunk = aes_unmix_columns(&chunk);
+    }
+
+    chunk = aes_invert_shift_rows(&chunk);
+    chunk = aes_invert_sbox(&chunk);
+    chunk = aes_add_chunks(&chunk, &keys[0]);
+
+    chunk
+}
+
 pub fn aes_128_ecb_encode(input: &Vec<u8>, key: &Vec<u8>) -> Option<Vec<u8>> {   
     
     if input.len() % 16 != 0 {
@@ -246,19 +281,7 @@ pub fn aes_128_ecb_encode(input: &Vec<u8>, key: &Vec<u8>) -> Option<Vec<u8>> {
         let mut chunk = aes_construct_chunk(&remainder);
         remainder = temp;
 
-        chunk = aes_add_round_key(&chunk, &keys[0]);
-
-        for i in 0..9 {
-            chunk = aes_apply_sbox(&chunk);
-            chunk = aes_shift_rows(&chunk);
-            chunk = aes_mix_columns(&chunk);
-
-            chunk = aes_add_round_key(&chunk, &keys[i+1]);
-        }
-
-        chunk = aes_apply_sbox(&chunk);
-        chunk = aes_shift_rows(&chunk);
-        chunk = aes_add_round_key(&chunk, &keys[10]);
+        chunk = aes_128_encode_chunk(&chunk, &keys);
 
         output.append(&mut aes_deconstruct_chunk(&chunk));
     }
@@ -283,18 +306,66 @@ pub fn aes_128_ecb_decode(input: &Vec<u8>, key: &Vec<u8>) -> Option<Vec<u8>> {
         let mut chunk = aes_construct_chunk(&remainder);
         remainder = temp;
 
-        chunk = aes_add_round_key(&chunk, &keys[10]);
+        chunk = aes_128_decode_chunk(&chunk, &keys);
 
-        for i in 0..9 {
-            chunk = aes_invert_shift_rows(&chunk);
-            chunk = aes_invert_sbox(&chunk);
-            chunk = aes_add_round_key(&chunk, &keys[9 - i]);
-            chunk = aes_unmix_columns(&chunk);
-        }
+        output.append(&mut aes_deconstruct_chunk(&chunk));
+    }
+    Some(output)
+}
 
-        chunk = aes_invert_shift_rows(&chunk);
-        chunk = aes_invert_sbox(&chunk);
-        chunk = aes_add_round_key(&chunk, &keys[0]);
+pub fn aes_128_cbc_encode(input: &Vec<u8>, key: &Vec<u8>, iv: &Vec<u8>) -> Option<Vec<u8>> {
+    if input.len() % 16 != 0 {
+        return None;
+    }
+
+    let mut keys = [[[0u8; 4]; 4]; 11];
+    keys[0] = aes_construct_chunk(key);
+    for i in 1..11 {
+        keys[i] = aes_next_keyround(&keys[i-1], (i-1) as u8);
+    }
+
+    let mut output = Vec::new();
+    let mut last_chunk = aes_construct_chunk(iv);
+
+    let mut remainder = input.clone();
+    while remainder.len() > 0 {
+        let temp = remainder.split_off(16);
+        let mut chunk = aes_construct_chunk(&remainder);
+        remainder = temp;
+
+        chunk = aes_add_chunks(&chunk, &last_chunk);
+        chunk = aes_128_encode_chunk(&chunk, &keys);
+        last_chunk = chunk;
+
+        output.append(&mut aes_deconstruct_chunk(&chunk));
+    }
+    Some(output)
+}
+
+pub fn aes_128_cbc_decode(input: &Vec<u8>, key: &Vec<u8>, iv: &Vec<u8>) -> Option<Vec<u8>> {
+    if input.len() % 16 != 0 {
+        return None;
+    }
+
+    let mut keys = [[[0u8; 4]; 4]; 11];
+    keys[0] = aes_construct_chunk(key);
+    for i in 1..11 {
+        keys[i] = aes_next_keyround(&keys[i-1], (i - 1) as u8);
+    }
+
+    let mut output = Vec::new();
+    let mut last_chunk = aes_construct_chunk(iv);
+
+    let mut remainder = input.clone();
+    while remainder.len() > 0 {
+        let temp = remainder.split_off(16);
+        let mut chunk = aes_construct_chunk(&remainder);
+        remainder = temp;
+
+        let temp = chunk;
+        chunk = aes_128_decode_chunk(&chunk, &keys);
+        chunk = aes_add_chunks(&chunk, &last_chunk);
+        last_chunk = temp;
 
         output.append(&mut aes_deconstruct_chunk(&chunk));
     }

@@ -10,7 +10,7 @@ use crypto::*;
 use rand::Rng;
 
 fn main() {
-    challenge_12();
+    challenge_13();
 }
 
 fn challenge_3() {
@@ -282,4 +282,33 @@ fn challenge_12() {
     }
 
     println!("{:?}", to_ascii(&known_bytes));
+}
+
+fn challenge_13() {
+    fn profile_for(input: &String) -> Vec<u8> {
+        let mut plaintext = String::from("email=");
+        plaintext += input;
+        plaintext += "&uid=10&role=user";
+        let bytes = pkcs7pad(&from_ascii(&plaintext), 16);
+
+        //One-time randomly generated key
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        aes_128_ecb_encode(&bytes, &key).unwrap()
+    }
+
+    fn decode(ciphertext: Vec<u8>) -> String {
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+        to_ascii(&aes_128_ecb_decode(&ciphertext, &key).unwrap())
+    }
+
+    let c1 = profile_for(&String::from("aaaaaaaaa.admin\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11\x11"));
+    let mut c2 = profile_for(&String::from("abc@gmail.com"));
+    for _ in 0..16 {
+        c2.pop();
+    }
+    for i in 0..16 {
+        c2.push(c1[16+i]);
+    }
+    println!("{:?}", decode(c2));
 }

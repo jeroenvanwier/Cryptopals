@@ -10,7 +10,7 @@ use crypto::*;
 use rand::Rng;
 
 fn main() {
-    challenge_13();
+    challenge_16();
 }
 
 fn challenge_3() {
@@ -311,4 +311,142 @@ fn challenge_13() {
         c2.push(c1[16+i]);
     }
     println!("{:?}", decode(c2));
+}
+
+fn challenge_14() {
+    fn enc_oracle(input: &Vec<u8>) -> Vec<u8> {
+        let mut plaintext = input.clone();
+        plaintext.append(&mut from_base64("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK").unwrap());
+
+        //One-time randomly generated key
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        //One-time randomly generated prefix
+        let mut random_prefix = from_base64("nI9VM1yVfEI0oQ0+qPg+dJ03pZo=").unwrap();
+        random_prefix.append(&mut plaintext);
+        plaintext = pkcs7pad(&random_prefix, 16);
+
+        aes_128_ecb_encode(&plaintext, &key).unwrap()
+    }
+
+    let mut prefix = Vec::new();
+    let mut current_len: usize = enc_oracle(&prefix).len();
+    while enc_oracle(&prefix).len() == current_len {
+        prefix.push(b'A');
+    }
+    current_len = enc_oracle(&prefix).len();
+    let mut block_size = 0;
+    while enc_oracle(&prefix).len() == current_len {
+        prefix.push(b'A');
+        block_size += 1;
+    }
+
+    println!("Block size: {:?}", block_size);
+
+    prefix = vec![b'A'; 3 * block_size];
+
+    let ciphertext = enc_oracle(&prefix);
+
+    let mut using_ecb = false;
+    let mut prefix_blocks = 0;
+    for b in 0..(ciphertext.len() / block_size - 1) {
+        let mut blocks_same = true;
+        for i in 0..block_size {
+            blocks_same &= ciphertext[b * block_size + i] == ciphertext[(b + 1) * block_size + i];
+        }
+        if blocks_same {
+            using_ecb = true;
+            prefix_blocks = b;
+        }
+    }
+
+    println!("Using ECB mode: {:?}", using_ecb);
+
+    prefix = vec![b'A'; block_size];
+    let mut prefix_padding = block_size;
+    let ciphertext = enc_oracle(&prefix);
+    while let Some(_) = prefix.pop() {
+        let test_ciphertext = enc_oracle(&prefix);
+        let mut blocks_same = true;
+        for i in 0..block_size {
+            blocks_same &= ciphertext[(prefix_blocks - 1) * block_size + i] == test_ciphertext[(prefix_blocks - 1) * block_size + i];
+        }
+        if blocks_same {
+            prefix_padding -= 1;
+        } else {
+            break;
+        }
+    }
+
+    println!("Determined length of random prefix: {:?}", (prefix_blocks * block_size) - prefix_padding);
+
+    let mut known_bytes = Vec::new();
+
+    for _ in 0..enc_oracle(&Vec::new()).len() {
+        prefix = vec![b'A'; prefix_padding];
+        let padding_length = block_size - (known_bytes.len() % block_size) - 1;
+        for _ in 0..padding_length {
+            prefix.push(b'A');
+        }
+        let challenge = enc_oracle(&prefix);
+        prefix.append(&mut known_bytes.clone());
+        let current_block = prefix_blocks + known_bytes.len() / block_size;
+        for b in 0..u8::MAX {
+            prefix.push(b);
+            let candidate = enc_oracle(&prefix);
+            let mut found_byte = true;
+            for i in 0..block_size {
+                found_byte &= challenge[block_size * current_block + i] == candidate[block_size * current_block + i];
+            }
+            if found_byte {
+                known_bytes.push(b);
+                break;
+            }
+            prefix.pop();
+        }
+    }
+
+    println!("{:?}", to_ascii(&known_bytes));
+}
+
+fn challenge_15() {
+    let test = pkcs7pad(&from_ascii("YELLOW SUBMARINE"), 16);
+    let test2 = pkcs7pad(&from_ascii("ICE ICE BABY"), 16);
+    let test3 = from_ascii("ICE ICE BABY\x05\x05\x05\x05");
+
+    println!("{:?} => {:?}", test, pkcs7unpad(&test));
+    println!("{:?} => {:?}", test2, pkcs7unpad(&test2));
+    println!("{:?} => {:?}", test3, pkcs7unpad(&test3));
+}
+
+fn challenge_16() {
+    fn enc_oracle(input: &Vec<u8>) -> Vec<u8> {
+        let mut plaintext = from_ascii("comment1=cooking%20MCs;userdata=");
+        plaintext.append(&mut input.clone());
+        plaintext.append(&mut from_ascii(";comment2=%20like%20a%20pound%20of%20bacon"));
+
+        //One-time randomly generated key
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        plaintext = pkcs7pad(&plaintext, 16);
+
+        aes_128_cbc_encode(&plaintext, &key, &vec![0u8; 16]).unwrap()
+    }
+
+    fn is_admin(input: &Vec<u8>) -> bool {
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        let plaintext = aes_128_cbc_decode(&input, &key, &vec![0u8;16]).unwrap();
+
+        to_ascii(&plaintext).contains(";admin=true;")
+    }
+
+    let mut test_data = vec![b'A'; 16];
+    test_data.append(&mut from_ascii(":admin<true"));
+
+    let mut ciphertext = enc_oracle(&test_data);
+    ciphertext[32] ^= 0b1;
+    ciphertext[38] ^= 0b1;
+
+    println!("Admin: {:?}", is_admin(&ciphertext));
 }

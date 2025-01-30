@@ -206,3 +206,20 @@ pub fn pkcs7pad(input: &Vec<u8>, block_size: u8) -> Vec<u8> {
     }
     output
 }
+
+pub fn pkcs7unpad(input: &Vec<u8>) -> Option<Vec<u8>> {
+    let mut output = input.clone();
+    let padding_size = output.pop()?;
+
+    if padding_size == 0 {
+        return None;
+    }
+
+    for _ in 1..padding_size {
+        if output.pop().is_none_or(|x| x != padding_size) {
+            return None;
+        }
+    }
+
+    Some(output)
+}

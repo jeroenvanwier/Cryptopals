@@ -371,3 +371,36 @@ pub fn aes_128_cbc_decode(input: &Vec<u8>, key: &Vec<u8>, iv: &Vec<u8>) -> Optio
     }
     Some(output)
 }
+
+pub fn aes_128_ctr_encode(input: &Vec<u8>, key: &Vec<u8>, nonce: &Vec<u8>) -> Option<Vec<u8>> {
+    fn counter_to_bytes(counter: u64) -> Vec<u8> {
+        //Convert a 64 bit counter to 8 little-endian bytes
+        let mut output = Vec::new();
+        let mut remainder = counter;
+        while output.len() < 8 {
+            output.push((remainder & 0xff) as u8);
+            remainder >>= 8;
+        }
+        output
+    }
+
+    if nonce.len() != 8 {
+        println!("Incorrect nonce length {:?}", nonce.len());
+        return None;
+    }
+
+    let mut counter = 0u64;
+    let mut key_generator = Vec::new();
+    while key_generator.len() <= input.len() {
+        key_generator.append(&mut nonce.clone());
+        key_generator.append(&mut counter_to_bytes(counter));
+        counter += 1;
+    }
+    let mut keystream = aes_128_ecb_encode(&key_generator, &key)?;
+    keystream.split_off(input.len());
+    Some(xor(&input, &keystream))
+}
+
+pub fn aes_128_ctr_decode(input: &Vec<u8>, key: &Vec<u8>, nonce: &Vec<u8>) -> Option<Vec<u8>> {
+    aes_128_ctr_encode(&input, &key, &nonce)
+}

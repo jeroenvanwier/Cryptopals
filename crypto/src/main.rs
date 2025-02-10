@@ -2,7 +2,7 @@
 mod bytestring;
 mod text_analysis;
 mod crypto;
-use std::{fs::File, io::Read};
+use std::{fs::File, i32, io::Read};
 
 use bytestring::*;
 use text_analysis::*;
@@ -10,7 +10,7 @@ use crypto::*;
 use rand::Rng;
 
 fn main() {
-    challenge_16();
+    challenge_20();
 }
 
 fn challenge_3() {
@@ -449,4 +449,216 @@ fn challenge_16() {
     ciphertext[38] ^= 0b1;
 
     println!("Admin: {:?}", is_admin(&ciphertext));
+}
+
+fn challenge_17() {
+    fn enc_oracle() -> (Vec<u8>, Vec<u8>) {
+        const PLAINTEXTS: [&str; 10] = [
+            "MDAwMDAwTm93IHRoYXQgdGhlIHBhcnR5IGlzIGp1bXBpbmc=",
+            "MDAwMDAxV2l0aCB0aGUgYmFzcyBraWNrZWQgaW4gYW5kIHRoZSBWZWdhJ3MgYXJlIHB1bXBpbic=",
+            "MDAwMDAyUXVpY2sgdG8gdGhlIHBvaW50LCB0byB0aGUgcG9pbnQsIG5vIGZha2luZw==",
+            "MDAwMDAzQ29va2luZyBNQydzIGxpa2UgYSBwb3VuZCBvZiBiYWNvbg==",
+            "MDAwMDA0QnVybmluZyAnZW0sIGlmIHlvdSBhaW4ndCBxdWljayBhbmQgbmltYmxl",
+            "MDAwMDA1SSBnbyBjcmF6eSB3aGVuIEkgaGVhciBhIGN5bWJhbA==",
+            "MDAwMDA2QW5kIGEgaGlnaCBoYXQgd2l0aCBhIHNvdXBlZCB1cCB0ZW1wbw==",
+            "MDAwMDA3SSdtIG9uIGEgcm9sbCwgaXQncyB0aW1lIHRvIGdvIHNvbG8=",
+            "MDAwMDA4b2xsaW4nIGluIG15IGZpdmUgcG9pbnQgb2g=",
+            "MDAwMDA5aXRoIG15IHJhZy10b3AgZG93biBzbyBteSBoYWlyIGNhbiBibG93"
+        ];
+
+        let mut rng = rand::rng();
+        let mut plaintext = from_base64(PLAINTEXTS[rng.random_range(0..10)]).unwrap();
+        //let mut plaintext = from_ascii("AAAAAAAAAAAAAAA");
+
+        //One-time randomly generated key
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        let iv  = rand_bytes(16);
+
+        plaintext = pkcs7pad(&plaintext, 16);
+
+        //println!("{:?}", plaintext);
+
+        (aes_128_cbc_encode(&plaintext, &key, &iv).unwrap(), iv)
+    }
+
+    fn is_padded(input: &Vec<u8>, iv: &Vec<u8>) -> bool {
+        let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+
+        let plaintext = aes_128_cbc_decode(&input, &key, &iv).unwrap();
+
+        //println!("{:?}", plaintext);
+
+        pkcs7unpad(&plaintext).is_some()
+    }
+
+    let (mut ciphertext, mut orig_iv) = enc_oracle();
+    let mut known_bytes = Vec::new();
+
+    while ciphertext.len() > 0 {
+        let remainder = ciphertext.split_off(16);
+        let mut known_block: Vec<u8> = Vec::new();
+        for i in 0..16 {
+            let mut iv = orig_iv.clone();
+            for j in 0..i {
+                iv[16 - i + j] ^= known_block[j] ^ (i as u8 + 1);
+            }
+            for test_byte in 0..u8::MAX {
+                if i == 0 && test_byte == 0 {
+                    // Block might already be correctly padded, skip 0 byte to ignore original padding
+                    // This will break if the original was correctly padded with 0x1, which we compensate for later
+                    continue;
+                }
+                iv[15 - i] ^= test_byte;
+                if is_padded(&ciphertext, &iv) {
+                    known_block.insert(0, test_byte ^ (1 + i as u8));
+                    //println!("{:?}", known_block);
+                    break;
+                }
+                iv[15 - i] ^= test_byte;
+            }
+            if i == 0 && known_block.len() == 0 {
+                // No byte produced correct padding, because the correct one was the one we ignored earlier
+                known_block.push(1);
+            }
+        }
+        //println!("{:?}", known_block);
+        orig_iv = ciphertext;
+        ciphertext = remainder;
+        known_bytes.append(&mut known_block);
+    }
+    println!("{:?}", to_base64(&known_bytes));
+    println!("{:?}", to_ascii(&known_bytes));
+
+}
+
+fn challenge_18() {
+    let key = from_ascii("YELLOW SUBMARINE");
+    let ciphertext = from_base64("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==").unwrap();
+    let plaintext = aes_128_ctr_decode(&ciphertext, &key, &vec![0;8]).unwrap();
+
+    println!("{:?}", to_ascii(&plaintext));
+}
+
+fn challenge_19() {
+    let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+    let mut file = File::open("./19.txt").expect("Failed to open file");
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect("Failed to read file");
+    let mut ciphertexts = Vec::new();
+    for line in contents.lines() {
+        ciphertexts.push(aes_128_ctr_encode(&from_base64(&line).unwrap(), &key, &vec![0; 8]).unwrap());
+    }
+
+    // See if any of the strings have common phrases at certain positions
+    // Using 'And' found many correct looking sentence starts
+    // 'Eig' shows up, trying 'Eight'
+    // 'I hav' -> 'I have'
+    // 'A terr' -> 'A terrible'
+    // 'Being cert' -> 'Being certain'
+    // 'Eighteenth-ce' -> 'Eighteenth-century'
+    // 'Her nights in argu' -> 'Her nights in argument'
+    // 'Eighteenth-century hou' -> 'Eighteenth-century houses'
+    // 'Or polite meaningless wor' -> 'Or polite meaningless words'
+    // Google: Poem is 'Easter' by WB Yeats, inputting longest sentence gives all ciphertexts decrypted
+    let mut keystream_candidates = Vec::new();
+    let found_string = from_ascii("He, too, has been changed in his turn,");
+
+    for ct in &ciphertexts {
+        let mut c = ct.clone();
+        if c.len() > found_string.len() {
+            c.split_off(found_string.len());
+        }
+        keystream_candidates.push(xor(&c, &found_string));
+    }
+
+    for cand in keystream_candidates {
+        let mut prefixes = Vec::new();
+        for ct in &ciphertexts {
+            let mut pfx = ct.clone();
+            let mut ccand = cand.clone();
+            if pfx.len() > ccand.len() {
+                pfx.split_off(ccand.len());
+            } else {
+                ccand.split_off(pfx.len());
+            }
+            pfx = xor(&pfx, &ccand);
+            let mut skip = false;
+            for i in 0..pfx.len() {
+                if pfx[i].is_ascii_control() || "~<>=|#{}\\[]".contains(pfx[i] as char) {
+                    skip = true;
+                    break;
+                }
+            }
+            if !skip {
+                prefixes.push(to_ascii(&pfx));
+            }
+        }
+        if prefixes.len() == ciphertexts.len() {
+            println!("{}", prefixes.join("\n"));
+        }
+    }
+}
+
+fn challenge_20() {
+    let key  = from_base64("QiB1YBiIylHbtl477czO7w==").unwrap();
+    let mut file = File::open("./20.txt").expect("Failed to open file");
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect("Failed to read file");
+    let mut ciphertexts = Vec::new();
+    for line in contents.lines() {
+        ciphertexts.push(aes_128_ctr_encode(&from_base64(&line).unwrap(), &key, &vec![0; 8]).unwrap());
+    }
+
+    let mut keysize = usize::MAX;
+    for ct in &ciphertexts {
+        if ct.len() < keysize {
+            keysize = ct.len();
+        }
+    }
+
+    for ct in &mut ciphertexts {
+        ct.truncate(keysize);
+    }
+
+    let mut blocks = Vec::new();
+
+    for j in 0..keysize {
+        let mut block: Vec<u8> = Vec::new();
+        for ct in &ciphertexts {
+            block.push(ct[j]);
+        }
+        blocks.push(block);
+    }
+
+    let mut guessed_key = Vec::new();
+    for block in blocks {
+        let mut best_key: u8 = 0;
+        let mut best_score = f64::MAX;
+        for i in 0..=u8::MAX {
+            let output = single_char_xor(&block, &i);
+            let output_s = to_ascii(&output);
+            let score = char_freq(&output_s);
+            if score < best_score {
+                best_score = score;
+                best_key = i;
+            }
+        }
+        guessed_key.push(best_key);
+    }
+
+    // for ct in &ciphertexts {
+    //     let output = repeat_key_xor(&ct, &guessed_key);
+
+    //     println!("{}", to_ascii(&output));
+    // }
+    println!("{:?}", to_hex(&guessed_key));
+    // "be3c05cd45aff87036475e0ce9f300cb72634f2fddd82c54bf61768a63e89d6d32eeb87f5f80244ce54154803d0bec9e396aefb16d"
+    // few letters are off, manually correcting
+    let manual_key = from_hex("993c05cd45aff87036475e0ce9f300cb72634f2fddd82c54bf61768a62e89d6d32eeb87f5f80244ce54154803d0bec9e396aefb16d").unwrap();
+    for ct in &ciphertexts {
+        let output = repeat_key_xor(&ct, &manual_key);
+
+        println!("{}", to_ascii(&output));
+    }
 }
